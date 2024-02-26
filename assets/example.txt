@@ -1,0 +1,10 @@
+2022-02-18T12:34:56Z example-host example-process[INFO]: Application started
+2022-02-18T13:45:23Z example-host example-process[ERROR]: Error in module XYZ
+2022-02-18T14:56:32Z example-host example-process[DEBUG]: Debugging in progress
+2022-02-18T15:01:44Z example-host example-process[INFO]: Task completed successfully
+2022-02-18T16:12:05Z example-host example-process[WARN]: Processing data
+2022-02-18T17:23:18Z example-host example-process[ERROR]: Error in module XYZ
+2022-02-18T18:34:29Z example-host example-process[DEBUG]: Debugging in progress
+2022-02-18T19:45:37Z example-host example-process[INFO]: Task completed successfully
+2022-02-18T20:56:48Z example-host example-process[ERROR]: Error in module XYZ
+2022-02-18T21:01:59Z example-host example-process[INFO]: Application started
