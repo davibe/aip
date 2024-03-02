@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, Write};
+use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
 
 use openai_api_rust::chat::*;
@@ -15,11 +15,9 @@ struct Options {
     /// Activate debug messages
     #[clap(short, long, value_name = "debug")]
     debug: bool,
-
-    /// How many output lines will be sent to OpenAI as an example of your input
-    #[clap(short, long, value_name = "sendlines", default_value = "10")]
-    send_lines: usize,
 }
+
+const READ_AHEAD_MAX: usize = 300;
 
 fn main() {
     let opts = Options::parse();
@@ -27,33 +25,84 @@ fn main() {
     let main_stdin = io::stdin();
     let mut main_stdin_reader = main_stdin.lock();
 
-    let main_stdout = io::stdout();
-    let mut main_stdout_writer = main_stdout.lock();
+    let mut buffer = vec![0; READ_AHEAD_MAX];
 
-    let mut read_ahead_buffer = String::new();
-    let mut read_ahead_count = 0;
-
-    while let Ok(bytes_read) = main_stdin_reader.read_line(&mut read_ahead_buffer) {
-        if bytes_read == 0 {
+    // Read ahead some stdin
+    let mut cur = buffer.as_mut_slice();
+    loop {
+        let n = main_stdin_reader
+            .read(cur)
+            .expect("Unable to read from stdin");
+        if n == 0 {
             break;
         }
-        if read_ahead_count >= opts.send_lines {
-            break;
-        }
-        read_ahead_count += 1;
+        cur = &mut cur[n..];
     }
 
+    // Ask OpenAI for a command
+    let command = ask_openapi_for_command(&buffer, &opts);
+
+    eprintln!("Running: {}", command);
+
+    // Spawn the child command suggested by OpenAI
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+
+    let mut child_stdin = child.stdin.take().expect("Unable to open child stdin");
+
+    // Flush the read ahead buffer to the child
+    let mut cur = buffer.as_mut_slice();
+    loop {
+        let n = child_stdin.write(cur).expect("Unable to write to child stdin");
+        if n == 0 {
+            break;
+        }
+        cur = &mut cur[n..];
+    }
+
+    // Send the rest of the input to the child
+    let cur = buffer.as_mut_slice();
+    loop {
+        let read = main_stdin_reader
+            .read(cur)
+            .expect("read");
+        if read == 0 {
+            break;
+        }
+        child_stdin.write_all(&cur[..read]).expect("Unable to write to child stdin");
+    }
+}
+
+fn ask_openapi_for_command(buffer: &[u8], opts: &Options) -> String {
     let auth = Auth::from_env().unwrap();
     let openai = OpenAI::new(auth, "https://api.openai.com/v1/");
+    let example = {
+        let newlines = buffer
+            .iter()
+            .enumerate()
+            .filter(|(_, &b)| b == b'\n')
+            .map(|(i, _)| i);
+        let line_based = newlines.clone().count() > 10;
+        let end = if line_based {
+            newlines.last().unwrap()
+        } else {
+            buffer.len()
+        };
+        std::str::from_utf8(&buffer[..end]).expect("Input from stdin is not utf8")
+    };
     let query = format!(
         "
-Write a cli command that reads lines from stdin.
+Write a cli command that reads from stdin.
 The program goal is: {}.
 
 This is an example of the input ---
 {}---
-",
-        opts.message, read_ahead_buffer
+        ",
+        opts.message, example
     );
 
     if opts.debug {
@@ -63,8 +112,8 @@ This is an example of the input ---
     let body = ChatBody {
         model: "gpt-4".to_string(),
         max_tokens: Some(1000),
-        temperature: Some(0_f32),
-        top_p: Some(0_f32),
+        temperature: Some(0.000001),
+        top_p: Some(0.000001),
         n: Some(1),
         stream: Some(false),
         stop: None,
@@ -83,74 +132,13 @@ This is an example of the input ---
             },
         ],
     };
-    let rs = openai.chat_completion_create(&body);
-    let choice = rs.unwrap().choices;
-    let message = &choice[0].message.as_ref().unwrap();
+    let rs = openai.chat_completion_create(&body).expect("chat_completion_create");
+    let first = rs.choices.first().unwrap();
+    let message = first.message.as_ref().unwrap();
 
     if opts.debug {
         eprintln!("OpenAI Answer (command): {}", message.content);
     }
 
-    eprintln!("Running: {}", message.content);
-
-    let command = message
-        .content
-        .clone()
-        .replace(r".*```bash", "")
-        .replace(r"```.*", "")
-        .trim()
-        .to_string();
-
-    let mut child = Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .stdin(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("spawn");
-
-    let mut child_stdin = child.stdin.take().expect("stdin");
-    let child_stdout = child.stdout.take().expect("stdout");
-
-    // TODO: does this need to be a thread ?
-    child_stdin
-        .write_all(read_ahead_buffer.as_bytes())
-        .expect("write");
-    // NOTE: we're reusing the read_ahead_buffer for subsequent lines after readahead
-    read_ahead_buffer.clear();
-    while let Ok(bytes_read) = main_stdin_reader.read_line(&mut read_ahead_buffer) {
-        if bytes_read == 0 {
-            break;
-        }
-        child_stdin
-            .write_all(read_ahead_buffer.as_bytes())
-            .expect("write");
-        read_ahead_buffer.clear();
-    }
-    drop(child_stdin);
-
-    // Pull child output
-    let mut line = String::new();
-    let mut child_stdout_reader = io::BufReader::new(child_stdout);
-    while let Ok(bytes_read) = child_stdout_reader.read_line(&mut line) {
-        if bytes_read == 0 {
-            break;
-        }
-        main_stdout_writer
-            .write_all(line.as_bytes())
-            .expect("Error writing to stdout");
-        line.clear();
-    }
-
-    // Wait for the child to finish
-    let output = child.wait_with_output().expect("wait");
-    if output.status.success() {
-        if opts.debug {
-            eprintln!("Process done.");
-        }
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("Process error: {}", stderr);
-    }
+    message.content.clone()
 }
