@@ -43,7 +43,7 @@ fn main() {
     };
 
     // Ask OpenAI for a command
-    let command = ask_openapi_for_command(&read_ahead, &opts);
+    let command = ask_openapi_for_command(read_ahead, &opts);
 
     eprintln!("Running: {}", command);
 
@@ -72,7 +72,9 @@ fn main() {
     // Send the rest of the input to the child
     let cur = buffer.as_mut_slice();
     loop {
-        let read = main_stdin_reader.read(cur).expect("Unable to read from stdin");
+        let read = main_stdin_reader
+            .read(cur)
+            .expect("Unable to read from stdin");
         if read == 0 {
             break;
         }
