@@ -82,7 +82,10 @@ fn main() {
         cur = &mut cur[n..];
     }
 
-    // Send the rest of the input to the child
+    // Send the rest of the input to the child, if any
+    if !read_stdin {
+        return;
+    }
     let cur = buffer.as_mut_slice();
     loop {
         let read = main_stdin_reader
