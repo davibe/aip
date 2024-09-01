@@ -130,7 +130,7 @@ This is an example of the input ---
     }
 
     let body = ChatBody {
-        model: "gpt-4".to_string(),
+        model: "gpt-4o".to_string(),
         max_tokens: Some(1000),
         temperature: Some(0.000001),
         top_p: Some(0.000001),
