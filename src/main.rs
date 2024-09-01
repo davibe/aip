@@ -25,10 +25,12 @@ fn main() {
     let main_stdin = io::stdin();
     let mut main_stdin_reader = main_stdin.lock();
 
+    let read_stdin = !atty::is(atty::Stream::Stdin);
+
     let mut buffer = vec![0; READ_AHEAD_MAX];
 
     // Read ahead some stdin
-    let read_ahead = {
+    let read_ahead = if read_stdin {
         let mut written = 0;
         loop {
             let n = main_stdin_reader
@@ -40,6 +42,8 @@ fn main() {
             written += n;
         }
         &mut buffer[..written]
+    } else {
+        &mut []
     };
 
     // Ask OpenAI for a command
