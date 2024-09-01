@@ -12,6 +12,10 @@ struct Options {
     /// The message to send to the AI
     message: String,
 
+    /// Dry mode, do not execute the command
+    #[clap(short, long, value_name = "dry")]
+    dry: bool,
+
     /// Activate debug messages
     #[clap(short, long, value_name = "debug")]
     debug: bool,
@@ -48,6 +52,11 @@ fn main() {
 
     // Ask OpenAI for a command
     let command = ask_openapi_for_command(read_ahead, &opts);
+
+    if opts.dry {
+        eprintln!("Command: {}", command);
+        return;
+    }
 
     eprintln!("Running: {}", command);
 
