@@ -13,7 +13,7 @@ struct Options {
     message: String,
 
     /// Dry mode, do not execute the command
-    #[clap(short, long, value_name = "dry")]
+    #[clap(short = 'n', long, value_name = "dry")]
     dry: bool,
 
     /// Activate debug messages
